@@ -1,5 +1,3 @@
-# Bring up your db to be analyzed on 9379 (e.g. slave replica)
-
 #
 # Matcher represents a single registered key. It understands that key
 # names can have partition identifiers and finds the identifier
@@ -10,13 +8,12 @@
 class Matcher
   attr_accessor :regex
 
-  def self.partition_key=( key )
-      @partition_key ||= key
-  end
-
+  class << self; attr_accessor :partition_key; end
+  
   def initialize(struct)
     @regex = Regexp.new("^" + struct.gsub( /[A-Z]+(_[A-Z]+)*/, "([^:]+)" ) + "$")
-    @partition_key_position = @@partition_key && @regex.match(struct).to_a.find_index {|k| k == @@partition_key }
+    @partition_key_position = self.class.partition_key &&
+      @regex.match(struct).to_a.find_index {|k| k == self.class.partition_key }
   end
 
   def match( s )
@@ -25,6 +22,13 @@ class Matcher
 
   def partition_value
     @partition_key_position && @last_match && @last_match[@partition_key_position]
+  end
+end
+
+# monkey patches for convenience
+class Array
+  def sum
+    reduce(0) { |a, x| a += x }
   end
 end
 
@@ -43,9 +47,9 @@ module RedisAnalysis
     @patient ||= Redis.new :port => 9379, :timeout => 60
   end
 
-  # Use the standard 5379 db for analysis, DB id 2
+  # Use the standard 9379 db for analysis, DB id 2
   def analysis
-    @analysis ||= Redis.new :db => 2
+    @analysis ||= Redis.new :port => 9380
   end
 
   def clear_analysis
@@ -130,7 +134,7 @@ module RedisAnalysis
   # Create a detailed report with breakdown by partition key value. This is a great start for pivotal table in excel
   #
   def write_report_by_partition_key( file, do_size=true )
-    file.write(FasterCSV.generate_line(["partition key","partition value","count", "size", "job_state"]))
+    file.write(FasterCSV.generate_line(["partition key","partition value","count", "size"] + partition_info_header))
     analysis.smembers( KEY_GROUPS ).map do |key|
       [analysis.llen(key), key]
     end.sort.each do |value,key|
@@ -154,7 +158,7 @@ module RedisAnalysis
       partition_sizes[partition_value] += analysis.hget( KEY_SIZES, original_key ).to_f if do_size
     end
     partition_counts.each_pair.sort {|(k,v),(k2,v2)| v <=> v2}.each do |partition_value, key_count|
-      extras = classify_partition( partition_value ) || []
+      extras = partition_info( partition_value ) || []
       file.write( FasterCSV.generate_line( [ key, partition_value, key_count, do_size ? partition_sizes[partition_value] : 0] | extras) )
     end
   end
@@ -178,9 +182,7 @@ module RedisAnalysis
       p slice.first
       ok = analysis.lrange( OTHER_KEYS, slice.first, slice.last)
       keys = ok.map do |k|
-        if k =~ /_cml$/
-          '_cml'
-        elsif k =~ /^lock/
+        if k =~ /^lock/
           'lock'
         elsif k =~ /^resque:/
           'resque'
@@ -207,7 +209,7 @@ module RedisAnalysis
       return @matchers if @matchers
       @matchers = YAML::Omap.new
       Support.keys.keystructs.sort {|a,b| b.size <=> a.size }.each do |struct|
-        @matchers[ Matcher.new(struct)] = struct 
+        @matchers[Matcher.new(struct)] = struct 
       end 
       @matchers
     end
@@ -239,8 +241,6 @@ def define_guest_keys
     redis_key :resque_jobs, "resque:QUEUE_NAME"
 KEYS
 end
-
-
 
 def run_redis_analysis
   #############

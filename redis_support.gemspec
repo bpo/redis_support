@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = %q{redis_support}
-  s.version = "0.0.16"
+  s.version = "0.0.17"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Brian P O'Rourke", "John Le"]
@@ -13,6 +13,7 @@ Gem::Specification.new do |s|
   s.files = [
     "lib/redis_support.rb",
     "lib/redis_support/class_extensions.rb",
+    "lib/redis_support/key_analysis.rb",
     "lib/redis_support/locks.rb"
   ]
   s.homepage = %q{http://github.com/dolores/redis_support}
