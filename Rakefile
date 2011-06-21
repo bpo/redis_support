@@ -31,6 +31,7 @@ task :analyze do
 
   require 'irb'
   require 'pp'
+  require 'fastercsv'
   require 'benchmark'
   require 'redis_support'
   require 'redis_support/key_analysis'

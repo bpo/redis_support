@@ -1,12 +1,14 @@
 GEM
   remote: http://rubygems.org/
   specs:
+    fastercsv (1.5.4)
     rake (0.8.7)
-    redis (2.0.3)
+    redis (2.2.1)
 
 PLATFORMS
   ruby
 
 DEPENDENCIES
+  fastercsv
   rake
   redis

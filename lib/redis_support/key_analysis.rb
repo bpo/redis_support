@@ -65,10 +65,11 @@ module RedisAnalysis
   #
   def load_db( estimate_size=true )
     analysis.sadd KEY_GROUPS, OTHER_KEYS
-    patient.keys("*").each do |key|
+    patient.keys("*").each_with_index do |key, i|
+      puts i
       analysis.rpush ALL_KEYS, key
       if( matcher = Support.match?(key) )
-        puts "matched: #{key} with #{matcher}" unless @chatty
+        # puts "matched: #{key} with #{matcher}" unless @chatty
         group = "#{REGISTERED_KEYS}:#{matcher}"
         analysis.rpush group, key
         analysis.sadd KEY_GROUPS, group
@@ -78,7 +79,7 @@ module RedisAnalysis
           analysis.hincrby( DETAILED_KEY_SIZES, key, size )
         end
       else
-        puts "unmatched: #{key}" unless @chatty
+        # puts "unmatched: #{key}" unless @chatty
         analysis.rpush OTHER_KEYS, key
         if estimate_size
           size = key_size( patient, key )
@@ -107,10 +108,32 @@ module RedisAnalysis
     pp analysis.info
   end
 
+  def individual_key_analysis(num_rdbs)
+    key_sizes = num_rdbs.times.map do |i|
+      patient.select(i)
+      patient.keys("*").map do |k|
+        [k, key_size(patient, k)]
+      end
+    end
+
+    key_sizes.each_with_index do |x, i|
+      File.open( "redis_key_analysis_w_size_#{i}.csv", "w" ) do |report|
+        full_size_time = Benchmark.measure { write_key_report(report, x) }
+      end
+    end
+  end
+
+  def write_key_report(file, rows)
+    file.write(FasterCSV.generate_line(["key", "size"]))
+    rows.each do |row|
+      file.write(FasterCSV.generate_line(row))
+    end
+  end
+
   def write_full_size_report( file )
     file.write(FasterCSV.generate_line(["key","count","size"]))
     analysis.smembers( KEY_GROUPS ).map do |group_key|
-      [analysis.llen( group_key ), analysis.hget( KEY_SIZES, group_key), group_key]
+      [analysis.llen( group_key ), analysis.hget(KEY_SIZES, group_key).to_i, group_key]
     end.sort.each do |count, size, group_key|
       actual_key = group_key.gsub( /^analysis:registered:/, "")
       file.write( FasterCSV.generate_line([ actual_key , count, size ]) )
@@ -119,16 +142,9 @@ module RedisAnalysis
 
   #Estimate 'key' size stored in 'redis'
   def key_size( redis, key )
-    case redis.type(key)
-    when "none" then 0
-    when "string" then redis.get(key).size
-    when "list" then redis.lrange(key,0,-1).map{|m| 1+m.size}.sum || 1
-    when "zset" then redis.zrange(key,0,-1).map{|m| 1+m.size}.sum || 1
-    when "set" then redis.smembers(key).map{|m| 1+m.size}.sum || 1
-    when "hash" then redis.hgetall(key).to_a.flatten.map{|m| 1+m.size}.sum || 1
-    end
+    key_info = Hash[*redis.debug("object", key).split(" ").slice(1..-1).map { |x| x.split(":") }.flatten]
+    key_info["serializedlength"].to_i
   end
-
 
   #
   # Create a detailed report with breakdown by partition key value. This is a great start for pivotal table in excel
@@ -239,6 +255,7 @@ end
 def define_guest_keys
   GuestKeys.instance_eval <<KEYS
     redis_key :resque_jobs, "resque:QUEUE_NAME"
+    #{$extra_guests}
 KEYS
 end
 
@@ -271,3 +288,4 @@ def run_redis_analysis
   puts "Done"
 
 end
+
